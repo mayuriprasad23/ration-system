@@ -38,6 +38,39 @@ exports.registerUser = async (req, res) => {
   }
 };
 
+// REGISTER ADMIN
+exports.registerAdmin = async (req, res) => {
+  const { name, aadhaar, password } = req.body;
+
+  if (!aadhaar || aadhaar.length !== 12 || !/^\d+$/.test(aadhaar)) {
+    return res.status(400).send("Aadhaar must be exactly 12 digits.");
+  }
+  if (!password || password.length < 6) {
+    return res.status(400).send("Password must be at least 6 characters.");
+  }
+  if (!name) {
+    return res.status(400).send("Name is required.");
+  }
+
+  try {
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    const query = `INSERT INTO users (name, aadhaar, password, role) VALUES (?, ?, ?, 'admin')`;
+
+    db.query(query, [name, aadhaar, hashedPassword], (err, result) => {
+      if (err) {
+        if (err.code === 'ER_DUP_ENTRY') {
+          return res.status(400).send("Aadhaar is already registered.");
+        }
+        return res.status(500).send(err);
+      }
+      res.send("Admin Registered Successfully ✅");
+    });
+  } catch (err) {
+    res.status(500).send(err);
+  }
+};
+
 // LOGIN
 exports.loginUser = (req, res) => {
   const { aadhaar, password } = req.body;

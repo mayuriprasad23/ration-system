@@ -36,3 +36,12 @@ export const resetPassword = async (data) => {
   });
   return res.text();
 };
+
+export const registerAdmin = async (data) => {
+  const res = await fetch(`${BASE_URL}/users/register-admin`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data)
+  });
+  return res.text();
+};
