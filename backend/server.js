@@ -11,9 +11,13 @@ app.use(express.json());
 // Routes
 const userRoutes = require('./routes/userRoutes');
 const dashboardRoutes = require('./routes/dashboardRoutes');
+const shopkeeperRoutes = require('./routes/shopkeeperRoutes');
+const complaintRoutes = require('./routes/complaintRoutes');
 
 app.use('/api/users', userRoutes);
 app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/shopkeeper', shopkeeperRoutes);
+app.use('/api/complaints', complaintRoutes);
 
 app.get('/', (req, res) => {
   res.send('Backend Running ✅');

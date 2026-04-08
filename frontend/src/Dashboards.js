@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
+import { submitComplaint, getComplaints, getMyComplaints, updateComplaintStatus } from './api';
 
 const BASE = "http://localhost:5000/api/dashboard";
 
@@ -19,6 +20,7 @@ export function AdminDashboard({ onLogout }) {
   const [newShop, setNewShop] = useState({ name: '', location: '' });
   const [stockUpdate, setStockUpdate] = useState({ shop_id: '', rice: '', wheat: '' });
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [complaints, setComplaints] = useState([]);
 
   const loadDashboard = useCallback(() => {
     fetch(`${BASE}/admin`).then(r => r.json()).then(setData).catch(() => {});
@@ -31,7 +33,13 @@ export function AdminDashboard({ onLogout }) {
     if (page === 'shops') fetch(`${BASE}/admin/shops`).then(r => r.json()).then(setShops);
     if (page === 'stock') fetch(`${BASE}/admin/stock`).then(r => r.json()).then(setStockList);
     if (page === 'reports') fetch(`${BASE}/admin/reports`).then(r => r.json()).then(setReports);
+    if (page === 'complaints') getComplaints().then(setComplaints);
   }, [page]);
+
+  const handleUpdateComplaint = async (id, status) => {
+    await updateComplaintStatus(id, status);
+    getComplaints().then(setComplaints);
+  };
 
   const handleAddShop = async () => {
     if (!newShop.name) return alert('Enter shop name');
@@ -58,6 +66,7 @@ export function AdminDashboard({ onLogout }) {
     { id: 'shops', label: 'Ration Shops', icon: '🏪' },
     { id: 'stock', label: 'Stock', icon: '📦' },
     { id: 'reports', label: 'Reports', icon: '📋' },
+    { id: 'complaints', label: 'Complaints', icon: '📝' },
   ];
 
   const filtered = (data.recentDistributions || []).filter(d =>
@@ -408,6 +417,46 @@ export function AdminDashboard({ onLogout }) {
             </div>
           </div>
         )}
+
+        {/* ===== COMPLAINTS PAGE ===== */}
+        {page === 'complaints' && (
+          <div className="sub-page">
+            <div className="page-top">
+              <div>
+                <h2>Complaints Management</h2>
+                <p className="page-desc">Review and resolve issues raised by users and shopkeepers</p>
+              </div>
+              <div className="page-stats-inline">
+                <span className="inline-stat">📝 Total: <strong>{complaints.length}</strong></span>
+              </div>
+            </div>
+            <div className="card">
+              <table className="data-table">
+                <thead><tr><th>ID</th><th>User</th><th>Role</th><th>Title</th><th>Description</th><th>Status</th><th>Action</th></tr></thead>
+                <tbody>
+                  {complaints.map((c, i) => (
+                    <tr key={i} className="table-row-animate" style={{animationDelay: `${i * 30}ms`}}>
+                      <td><span className="id-badge">#{c.id}</span></td>
+                      <td className="name-cell">{c.user_name}</td>
+                      <td><span className={`category-badge ${c.role.toLowerCase()}`}>{c.role}</span></td>
+                      <td><strong>{c.title}</strong></td>
+                      <td>{c.description}</td>
+                      <td><span className={`status-badge ${c.status === 'Pending' ? 'pending' : 'delivered'}`}>{c.status}</span></td>
+                      <td>
+                        {c.status === 'Pending' ? (
+                          <button className="action-btn" onClick={() => handleUpdateComplaint(c.id, 'Resolved')} style={{padding: '4px 10px', fontSize: '12px'}}>Resolve</button>
+                        ) : (
+                          <span style={{color: '#94a3b8', fontSize: '12px'}}>Resolved</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                  {complaints.length === 0 && <tr><td colSpan="7" className="empty-state">No complaints found</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ---- ADD SHOP MODAL ---- */}
@@ -453,19 +502,35 @@ export function AdminDashboard({ onLogout }) {
 /* ========================================
    SHOPKEEPER DASHBOARD – Full Featured
    ======================================== */
-export function ShopkeeperDashboard({ onLogout, shopId = 1 }) {
+export function ShopkeeperDashboard({ user, onLogout, shopId = 1, isAssistedMode = false }) {
   const [data, setData] = useState(null);
   const [search, setSearch] = useState('');
   const [searchType, setSearchType] = useState('aadhaar');
   const [userResult, setUserResult] = useState(null);
   const [distribute, setDistribute] = useState({ rice: 0, wheat: 0 });
-  const [activeTab, setActiveTab] = useState('overview');
+  const [activeTab, setActiveTab] = useState(isAssistedMode ? 'distribute' : 'overview');
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(isAssistedMode ? true : false);
+  const [distributeSuccess, setDistributeSuccess] = useState(false);
+  const [myComplaints, setMyComplaints] = useState([]);
+  const [compForm, setCompForm] = useState({ title: '', description: '' });
+
+  const skName = user?.name || 'Shopkeeper';
+  const skInitial = skName.charAt(0).toUpperCase();
 
   const loadData = useCallback(() => {
-    fetch(`${BASE}/shopkeeper/${shopId}`).then(r => r.json()).then(setData);
-  }, [shopId]);
+    fetch(`${BASE}/shopkeeper/${shopId}`).then(r => r.json()).then(setData).catch(() => {});
+    if (user?.id) getMyComplaints(user.id).then(setMyComplaints);
+  }, [shopId, user]);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  const handleComplaintSubmit = async () => {
+    if (!compForm.title || !compForm.description) return alert("Fill all fields");
+    await submitComplaint({ user_id: user.id, role: 'shopkeeper', title: compForm.title, description: compForm.description });
+    alert("Complaint Submitted!");
+    setCompForm({ title: '', description: '' });
+    getMyComplaints(user.id).then(setMyComplaints);
+  };
 
   const handleSearch = async () => {
     if (!search.trim()) return alert('Please enter a search term');
@@ -485,66 +550,133 @@ export function ShopkeeperDashboard({ onLogout, shopId = 1 }) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ user_id: userResult.id, shop_id: shopId, rice: distribute.rice, wheat: distribute.wheat })
     });
-    if (res.ok) { alert(await res.text()); loadData(); setUserResult(null); setSearch(''); setDistribute({ rice: 0, wheat: 0 }); }
+    if (res.ok) {
+      setDistributeSuccess(true);
+      setTimeout(() => setDistributeSuccess(false), 3000);
+      loadData(); setUserResult(null); setSearch(''); setDistribute({ rice: 0, wheat: 0 });
+    }
     else alert('Error distributing ration');
   };
 
   if (!data) return (
     <div className="loading-screen">
       <div className="loading-spinner"></div>
-      <p>Loading Dashboard...</p>
+      <p>Loading Shopkeeper Dashboard...</p>
     </div>
   );
 
   const todayRice = data.dailyTransactions.reduce((s, t) => s + (t.rice || 0), 0);
   const todayWheat = data.dailyTransactions.reduce((s, t) => s + (t.wheat || 0), 0);
+  const totalStock = (data.currentStock.rice || 0) + (data.currentStock.wheat || 0);
+
+  let navItems = [
+    { id: 'overview', label: 'Overview', icon: '📊' },
+    { id: 'distribute', label: 'Distribute Ration', icon: '🚚' },
+    { id: 'transactions', label: 'Transactions', icon: '📋' },
+    { id: 'complaints', label: 'Complaints', icon: '📝' },
+  ];
+
+  if (isAssistedMode) {
+    navItems = [
+      { id: 'distribute', label: 'Distribute Ration', icon: '🚚' }
+    ];
+  }
 
   return (
-    <div className="shopkeeper-layout">
-      {/* Top Bar */}
-      <div className="sk-topbar">
-        <div className="sk-topbar-left">
-          <span className="sk-logo">🏪</span>
-          <span className="sk-title">Shopkeeper Portal</span>
+    <div className="admin-layout sk-layout-v2">
+      {/* ---- TOP HEADER BAR ---- */}
+      <div className="top-header sk-header-v2">
+        <div className="top-header-left">
+          {!isAssistedMode && <div className="home-icon" onClick={() => setSidebarCollapsed(!sidebarCollapsed)}>☰</div>}
+          <span className="header-title">{isAssistedMode ? '🤝 Assisted Mode' : 'Smart Ration Distribution System'}</span>
+          {!isAssistedMode && <span className="header-badge sk-badge-v2">Shopkeeper Panel</span>}
         </div>
-        <div className="sk-topbar-right">
+        <div className="top-header-right">
+          {isAssistedMode && <span className="status-badge pending" style={{background: '#d97706', marginRight: '15px'}}>Kiosk Mode Active</span>}
+          <div className="notification-bell">🔔<span className="notif-dot"></span></div>
           <div className="admin-info">
-            <div className="admin-avatar sk-avatar">S</div>
-            <span className="admin-name">Shopkeeper</span>
+            <div className="admin-avatar sk-avatar-v2">{skInitial}</div>
+            <div className="admin-name-block">
+              <span className="admin-name">{skName}</span>
+              <span className="admin-role">Shop #{shopId}</span>
+            </div>
           </div>
           <button className="logout-top-btn" onClick={onLogout}>⏻ Logout</button>
         </div>
       </div>
 
-      <div className="sk-body">
-        {/* Tab Navigation */}
-        <div className="sk-tabs">
-          <button className={`sk-tab ${activeTab === 'overview' ? 'active' : ''}`} onClick={() => setActiveTab('overview')}>📊 Overview</button>
-          <button className={`sk-tab ${activeTab === 'distribute' ? 'active' : ''}`} onClick={() => setActiveTab('distribute')}>🚚 Distribute Ration</button>
-          <button className={`sk-tab ${activeTab === 'transactions' ? 'active' : ''}`} onClick={() => setActiveTab('transactions')}>📋 Daily Transactions</button>
+      {/* ---- SIDEBAR ---- */}
+      <div className={`sidebar sk-sidebar-v2 ${sidebarCollapsed ? 'collapsed' : ''}`}>
+        <div className="sidebar-profile">
+          <div className="avatar sk-profile-avatar">
+            <span>{skInitial}</span>
+          </div>
+          {!sidebarCollapsed && (
+            <>
+              <p className="welcome-text">Welcome, {skName}</p>
+              <span className="email-text">Shop #{shopId} • Shopkeeper</span>
+            </>
+          )}
         </div>
+        <div className="sidebar-nav">
+          {navItems.map(item => (
+            <div key={item.id} className={`sidebar-nav-item ${activeTab === item.id ? 'active' : ''}`} onClick={() => setActiveTab(item.id)} title={item.label}>
+              <span className="nav-icon">{item.icon}</span>
+              {!sidebarCollapsed && <span className="nav-label">{item.label}</span>}
+            </div>
+          ))}
+        </div>
+        <div className="sidebar-logout">
+          <button onClick={onLogout}>
+            <span>⏻</span>
+            {!sidebarCollapsed && ' Logout'}
+          </button>
+        </div>
+      </div>
 
-        {/* Overview Tab */}
+      {/* ---- MAIN CONTENT ---- */}
+      <div className={`main-content ${sidebarCollapsed ? 'expanded' : ''}`}>
+
+        {/* Success Toast */}
+        {distributeSuccess && (
+          <div className="sk-toast animate-in">✅ Ration distributed successfully!</div>
+        )}
+
+        {/* === OVERVIEW === */}
         {activeTab === 'overview' && (
-          <div className="sk-overview animate-in">
-            <div className="stat-cards three-col">
+          <div className="dashboard-content">
+            <div className="welcome-section">
+              <h2>Welcome back, {skName} 👋</h2>
+              <p>Manage your shop's stock and distribute rations to beneficiaries efficiently.</p>
+            </div>
+
+            <div className="stat-cards four-col">
               <div className="stat-card green animate-in" style={{animationDelay: '0ms'}}>
                 <div className="stat-card-glow"></div>
                 <div className="stat-header"><div className="stat-icon">🌾</div> Rice Stock</div>
                 <div className="stat-number">{data.currentStock.rice}<span className="stat-unit">kg</span></div>
-                <div className="stat-sub">Currently available</div>
+                <div className="stat-sub">Available in store</div>
                 <div className="stock-bar-wrap"><div className="stock-bar rice" style={{width: `${Math.min((data.currentStock.rice / 1000) * 100, 100)}%`}}></div></div>
               </div>
               <div className="stat-card orange animate-in" style={{animationDelay: '80ms'}}>
                 <div className="stat-card-glow"></div>
                 <div className="stat-header"><div className="stat-icon">🌾</div> Wheat Stock</div>
                 <div className="stat-number">{data.currentStock.wheat}<span className="stat-unit">kg</span></div>
-                <div className="stat-sub">Currently available</div>
+                <div className="stat-sub">Available in store</div>
                 <div className="stock-bar-wrap"><div className="stock-bar wheat" style={{width: `${Math.min((data.currentStock.wheat / 1000) * 100, 100)}%`}}></div></div>
               </div>
-              <div className="stat-card blue animate-in" style={{animationDelay: '160ms'}}>
+              <div className="stat-card purple animate-in" style={{animationDelay: '160ms'}}>
                 <div className="stat-card-glow"></div>
-                <div className="stat-header"><div className="stat-icon">📋</div> Today's Transactions</div>
+                <div className="stat-header"><div className="stat-icon">📦</div> Total Stock</div>
+                <div className="stat-number">{totalStock}<span className="stat-unit">kg</span></div>
+                <div className="stat-detail">
+                  <span className="detail-chip rice">🌾 Rice: {data.currentStock.rice} kg</span>
+                  <span className="detail-chip wheat">🌾 Wheat: {data.currentStock.wheat} kg</span>
+                </div>
+              </div>
+              <div className="stat-card blue animate-in" style={{animationDelay: '240ms'}}>
+                <div className="stat-card-glow"></div>
+                <div className="stat-header"><div className="stat-icon">📋</div> Today's Orders</div>
                 <div className="stat-number">{data.dailyTransactions.length}</div>
                 <div className="stat-sub">Distributions today</div>
                 <div className="stat-detail">
@@ -554,27 +686,88 @@ export function ShopkeeperDashboard({ onLogout, shopId = 1 }) {
               </div>
             </div>
 
-            {/* Quick Actions */}
-            <div className="quick-actions-grid">
-              <div className="quick-action-card" onClick={() => setActiveTab('distribute')}>
-                <span className="qa-icon">🚚</span>
-                <span className="qa-label">Distribute Ration</span>
-                <span className="qa-desc">Search user & distribute</span>
+            <div className="content-grid">
+              {/* Recent Activity */}
+              <div className="card animate-in" style={{animationDelay: '320ms'}}>
+                <div className="card-header">
+                  <h3>📋 Today's Distributions</h3>
+                  <span className="inline-stat">Today: <strong>{data.dailyTransactions.length}</strong></span>
+                </div>
+                <table className="data-table">
+                  <thead>
+                    <tr><th>User</th><th>Rice</th><th>Wheat</th><th>Total</th><th>Time</th></tr>
+                  </thead>
+                  <tbody>
+                    {data.dailyTransactions.slice(0, 5).map((tx, i) => (
+                      <tr key={i} className="table-row-animate" style={{animationDelay: `${i * 40}ms`}}>
+                        <td className="name-cell">{tx.userName || `User #${tx.user_id}`}</td>
+                        <td>{tx.rice} kg</td>
+                        <td>{tx.wheat} kg</td>
+                        <td><strong>{tx.rice + tx.wheat} kg</strong></td>
+                        <td>{new Date(tx.date).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</td>
+                      </tr>
+                    ))}
+                    {data.dailyTransactions.length === 0 && <tr><td colSpan="5" className="empty-state">No distributions yet today</td></tr>}
+                  </tbody>
+                </table>
+                {data.dailyTransactions.length > 5 && (
+                  <div className="view-all-link">
+                    <span onClick={() => setActiveTab('transactions')}>View All Transactions →</span>
+                  </div>
+                )}
               </div>
-              <div className="quick-action-card" onClick={() => setActiveTab('transactions')}>
-                <span className="qa-icon">📋</span>
-                <span className="qa-label">View Transactions</span>
-                <span className="qa-desc">Today's distribution log</span>
+
+              {/* Quick Actions Sidebar */}
+              <div className="summary-stack">
+                <div className="summary-card animate-in" style={{animationDelay: '400ms'}}>
+                  <div className="s-icon stock-icon">📦</div>
+                  <div className="s-text">
+                    <h4>Total Stock</h4>
+                    <p>{totalStock} <span>kg</span></p>
+                  </div>
+                </div>
+                <div className="summary-card animate-in" style={{animationDelay: '460ms'}}>
+                  <div className="s-icon dist-icon">🚚</div>
+                  <div className="s-text">
+                    <h4>Distributed Today</h4>
+                    <p>{todayRice + todayWheat} <span>kg</span></p>
+                  </div>
+                </div>
+                {(data.currentStock.rice < 100 || data.currentStock.wheat < 100) && (
+                  <div className="summary-card animate-in" style={{animationDelay: '520ms', border: '1px solid #fecaca'}}>
+                    <div className="s-icon alert-icon">⚠️</div>
+                    <div className="s-text">
+                      <h4>Low Stock Warning</h4>
+                      <p style={{fontSize: '13px', color: '#dc2626'}}>{data.currentStock.rice < 100 ? 'Rice low! ' : ''}{data.currentStock.wheat < 100 ? 'Wheat low!' : ''}</p>
+                    </div>
+                  </div>
+                )}
+                <div className="quick-action-card animate-in" style={{animationDelay: '580ms'}} onClick={() => setActiveTab('distribute')}>
+                  <span className="qa-icon">🚚</span>
+                  <span className="qa-label">Distribute Ration</span>
+                  <span className="qa-desc">Search user & distribute now</span>
+                </div>
               </div>
             </div>
           </div>
         )}
 
-        {/* Distribute Tab */}
+        {/* === DISTRIBUTE === */}
         {activeTab === 'distribute' && (
-          <div className="sk-distribute animate-in">
-            <div className="card">
-              <h3>🔍 Search User by Aadhaar or Ration Card</h3>
+          <div className="sub-page">
+            <div className="page-top">
+              <div>
+                <h2>Distribute Ration</h2>
+                <p className="page-desc">Search beneficiary by Aadhaar or Ration Card and distribute ration in assisted mode</p>
+              </div>
+              <div className="page-stats-inline">
+                <span className="inline-stat">🌾 Rice: <strong>{data.currentStock.rice} kg</strong></span>
+                <span className="inline-stat">🌾 Wheat: <strong>{data.currentStock.wheat} kg</strong></span>
+              </div>
+            </div>
+
+            <div className="card animate-in">
+              <h3>🔍 Search Beneficiary</h3>
               <div className="search-controls">
                 <div className="search-type-toggle">
                   <button className={`toggle-btn ${searchType === 'aadhaar' ? 'active' : ''}`} onClick={() => setSearchType('aadhaar')}>Aadhaar</button>
@@ -598,17 +791,21 @@ export function ShopkeeperDashboard({ onLogout, shopId = 1 }) {
                   </div>
                   <div className="user-result-details">
                     <div className="detail-item"><span className="detail-label">Family Members</span><span className="detail-value">{userResult.family_members}</span></div>
+                    <div className="detail-item"><span className="detail-label">Category</span><span className="detail-value">{userResult.ration_category}</span></div>
+                    <div className="detail-item"><span className="detail-label">Aadhaar</span><span className="detail-value"><code className="aadhaar-code">{userResult.aadhaar}</code></span></div>
                   </div>
                   <div className="distribute-form">
                     <h4>📦 Distribute Ration (Assisted Mode)</h4>
                     <div className="distribute-inputs">
                       <div className="distribute-field">
                         <label>Rice (kg)</label>
-                        <input type="number" className="modal-input" placeholder="0" value={distribute.rice} onChange={e => setDistribute({ ...distribute, rice: Number(e.target.value) })} />
+                        <input type="number" className="modal-input" placeholder="0" min="0" value={distribute.rice} onChange={e => setDistribute({ ...distribute, rice: Number(e.target.value) })} />
+                        <span className="field-hint">Available: {data.currentStock.rice} kg</span>
                       </div>
                       <div className="distribute-field">
                         <label>Wheat (kg)</label>
-                        <input type="number" className="modal-input" placeholder="0" value={distribute.wheat} onChange={e => setDistribute({ ...distribute, wheat: Number(e.target.value) })} />
+                        <input type="number" className="modal-input" placeholder="0" min="0" value={distribute.wheat} onChange={e => setDistribute({ ...distribute, wheat: Number(e.target.value) })} />
+                        <span className="field-hint">Available: {data.currentStock.wheat} kg</span>
                       </div>
                       <button className="action-btn distribute-btn" onClick={handleDistribute}>🚚 Distribute Now</button>
                     </div>
@@ -619,31 +816,76 @@ export function ShopkeeperDashboard({ onLogout, shopId = 1 }) {
           </div>
         )}
 
-        {/* Daily Transactions Tab */}
+        {/* === TRANSACTIONS === */}
         {activeTab === 'transactions' && (
-          <div className="sk-transactions animate-in">
-            <div className="card">
-              <div className="card-header">
-                <h3>📋 Daily Transactions — {new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}</h3>
-                <span className="inline-stat">Total: <strong>{data.dailyTransactions.length}</strong></span>
+          <div className="sub-page">
+            <div className="page-top">
+              <div>
+                <h2>Daily Transactions</h2>
+                <p className="page-desc">All ration distributions for {new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
               </div>
+              <div className="page-stats-inline">
+                <span className="inline-stat">📋 Total: <strong>{data.dailyTransactions.length}</strong></span>
+                <span className="inline-stat">🌾 Rice: <strong>{todayRice} kg</strong></span>
+                <span className="inline-stat">🌾 Wheat: <strong>{todayWheat} kg</strong></span>
+              </div>
+            </div>
+
+            <div className="card animate-in">
               <table className="data-table">
                 <thead>
-                  <tr><th>User</th><th>Rice (kg)</th><th>Wheat (kg)</th><th>Total (kg)</th><th>Time</th></tr>
+                  <tr><th>#</th><th>Beneficiary</th><th>Rice (kg)</th><th>Wheat (kg)</th><th>Total (kg)</th><th>Time</th><th>Status</th></tr>
                 </thead>
                 <tbody>
                   {data.dailyTransactions.map((tx, i) => (
                     <tr key={i} className="table-row-animate" style={{animationDelay: `${i * 40}ms`}}>
+                      <td><span className="id-badge">#{i + 1}</span></td>
                       <td className="name-cell">{tx.userName || `User #${tx.user_id}`}</td>
                       <td>{tx.rice} kg</td>
                       <td>{tx.wheat} kg</td>
                       <td><strong>{tx.rice + tx.wheat} kg</strong></td>
                       <td>{new Date(tx.date).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</td>
+                      <td><span className="status-badge delivered">✓ Delivered</span></td>
                     </tr>
                   ))}
-                  {data.dailyTransactions.length === 0 && <tr><td colSpan="5" className="empty-state">No transactions today</td></tr>}
+                  {data.dailyTransactions.length === 0 && <tr><td colSpan="7" className="empty-state">No transactions today</td></tr>}
                 </tbody>
               </table>
+            </div>
+          </div>
+        )}
+
+        {/* === COMPLAINTS === */}
+        {activeTab === 'complaints' && (
+           <div className="sub-page">
+            <div className="page-top">
+              <div>
+                <h2>Support & Complaints</h2>
+                <p className="page-desc">Raise issues with the admin and check your past reports</p>
+              </div>
+            </div>
+            <div className="content-grid">
+              <div className="card">
+                <h3>Submit New Complaint</h3>
+                <input className="modal-input" placeholder="Title/Subject" value={compForm.title} onChange={e => setCompForm({...compForm, title: e.target.value})} style={{marginTop: '10px'}} />
+                <textarea className="modal-input" placeholder="Describe your issue..." value={compForm.description} onChange={e => setCompForm({...compForm, description: e.target.value})} rows="4" style={{marginTop: '10px', resize: 'vertical'}} />
+                <button className="action-btn" style={{marginTop: '15px'}} onClick={handleComplaintSubmit}>Submit Complaint</button>
+              </div>
+              <div className="card">
+                <h3>My Previous Complaints</h3>
+                <div style={{marginTop: '15px'}}>
+                  {myComplaints.map(c => (
+                    <div key={c.id} style={{padding: '12px', borderBottom: '1px solid #1e293b', marginBottom: '8px'}}>
+                       <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: '5px'}}>
+                         <strong>{c.title}</strong>
+                         <span className={`status-badge ${c.status === 'Pending' ? 'pending' : 'delivered'}`}>{c.status}</span>
+                       </div>
+                       <p style={{fontSize: '13px', color: '#94a3b8'}}>{c.description}</p>
+                    </div>
+                  ))}
+                  {myComplaints.length === 0 && <p className="empty-state" style={{marginTop: '20px'}}>No complaints submitted yet.</p>}
+                </div>
+              </div>
             </div>
           </div>
         )}
@@ -657,10 +899,25 @@ export function ShopkeeperDashboard({ onLogout, shopId = 1 }) {
    ======================================== */
 export function UserDashboard({ user, onLogout }) {
   const [data, setData] = useState(null);
+  const [myComplaints, setMyComplaints] = useState([]);
+  const [compForm, setCompForm] = useState({ title: '', description: '' });
+  const [activeTab, setActiveTab] = useState('overview');
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   useEffect(() => {
-    if (user?.id) fetch(`${BASE}/user/${user.id}`).then(r => r.json()).then(setData);
+    if (user?.id) {
+      fetch(`${BASE}/user/${user.id}`).then(r => r.json()).then(setData);
+      getMyComplaints(user.id).then(setMyComplaints);
+    }
   }, [user]);
+
+  const handleComplaintSubmit = async () => {
+    if (!compForm.title || !compForm.description) return alert("Fill all fields");
+    await submitComplaint({ user_id: user.id, role: 'user', title: compForm.title, description: compForm.description });
+    alert("Complaint Submitted!");
+    setCompForm({ title: '', description: '' });
+    getMyComplaints(user.id).then(setMyComplaints);
+  };
 
   if (!data) return (
     <div className="loading-screen">
@@ -682,120 +939,191 @@ export function UserDashboard({ user, onLogout }) {
   const riceRemaining = Math.max(0, (data.entitlement.rice || 0) - totalReceived.rice);
   const wheatRemaining = Math.max(0, (data.entitlement.wheat || 0) - totalReceived.wheat);
 
+  const navItems = [
+    { id: 'overview', label: 'My Ration', icon: '📊' },
+    { id: 'transactions', label: 'History', icon: '📋' },
+    { id: 'complaints', label: 'Support', icon: '📝' },
+  ];
+
   return (
-    <div className="user-layout">
-      {/* Top Bar */}
-      <div className="user-topbar">
-        <div className="sk-topbar-left">
-          <span className="sk-logo">🏪</span>
-          <span className="sk-title">Ration Portal</span>
+    <div className="admin-layout">
+      {/* ---- TOP HEADER BAR ---- */}
+      <div className="top-header">
+        <div className="top-header-left">
+          <div className="home-icon" onClick={() => setSidebarCollapsed(!sidebarCollapsed)}>☰</div>
+          <span className="header-title">Smart Ration Distribution System</span>
+          <span className="header-badge" style={{background: 'rgba(253, 224, 71, 0.2)', color: '#fde047'}}>User Panel</span>
         </div>
-        <div className="sk-topbar-right">
+        <div className="top-header-right">
+          <div className="notification-bell">🔔<span className="notif-dot"></span></div>
           <div className="admin-info">
-            <div className="admin-avatar user-avatar">{data.user.name?.charAt(0)?.toUpperCase()}</div>
-            <span className="admin-name">{data.user.name}</span>
+            <div className="admin-avatar">{data.user.name?.charAt(0)?.toUpperCase()}</div>
+            <div className="admin-name-block">
+              <span className="admin-name">{data.user.name}</span>
+              <span className="admin-role">Beneficiary</span>
+            </div>
           </div>
           <button className="logout-top-btn" onClick={onLogout}>⏻ Logout</button>
         </div>
       </div>
 
-      <div className="user-body">
-        {/* Welcome */}
-        <div className="user-welcome animate-in">
-          <div className="user-welcome-text">
-            <h2>Hello, {data.user.name} 👋</h2>
-            <p>Welcome to the Smart Ration Distribution System</p>
+      {/* ---- SIDEBAR ---- */}
+      <div className={`sidebar ${sidebarCollapsed ? 'collapsed' : ''}`}>
+        <div className="sidebar-profile">
+          <div className="avatar">
+            <span>{data.user.name?.charAt(0)?.toUpperCase()}</span>
           </div>
+          {!sidebarCollapsed && (
+            <>
+              <p className="welcome-text" style={{color: '#fff'}}>Welcome, {data.user.name.split(' ')[0]}</p>
+              <span className="email-text">Aadhaar: {data.user.aadhaar.slice(-4).padStart(12, '*')}</span>
+            </>
+          )}
         </div>
-
-        <div className="user-grid">
-          {/* Personal Details Card */}
-          <div className="card user-details-card animate-in" style={{animationDelay: '80ms'}}>
-            <h3>👤 Personal Details</h3>
-            <div className="user-detail-list">
-              <div className="user-detail-row">
-                <span className="ud-label">Full Name</span>
-                <span className="ud-value">{data.user.name}</span>
-              </div>
-              <div className="user-detail-row">
-                <span className="ud-label">Aadhaar Number</span>
-                <span className="ud-value"><code className="aadhaar-code">{data.user.aadhaar}</code></span>
-              </div>
-              <div className="user-detail-row">
-                <span className="ud-label">Ration Card</span>
-                <span className="ud-value">{data.user.ration_card_number}</span>
-              </div>
-              <div className="user-detail-row">
-                <span className="ud-label">Category</span>
-                <span className="ud-value"><span className={`category-badge ${data.user.category?.toLowerCase()}`}>{data.user.category}</span></span>
-              </div>
-              <div className="user-detail-row">
-                <span className="ud-label">Family Members</span>
-                <span className="ud-value">{data.user.family_members} members</span>
-              </div>
+        <div className="sidebar-nav">
+          {navItems.map(item => (
+            <div key={item.id} className={`sidebar-nav-item ${activeTab === item.id ? 'active' : ''}`} onClick={() => setActiveTab(item.id)} title={item.label}>
+              <span className="nav-icon">{item.icon}</span>
+              {!sidebarCollapsed && <span className="nav-label">{item.label}</span>}
             </div>
-          </div>
-
-          {/* Entitlement Card */}
-          <div className="card user-entitlement-card animate-in" style={{animationDelay: '160ms'}}>
-            <h3>🌾 Ration Entitlement (Monthly)</h3>
-            <div className="entitlement-grid">
-              <div className="entitlement-item rice-ent">
-                <div className="ent-icon">🌾</div>
-                <div className="ent-info">
-                  <span className="ent-label">Rice</span>
-                  <span className="ent-value">{data.entitlement.rice} kg</span>
-                  <span className="ent-remaining">Remaining: {riceRemaining} kg</span>
-                </div>
-                <div className="ent-progress-wrap"><div className="ent-progress rice-progress" style={{width: `${data.entitlement.rice > 0 ? Math.min(((data.entitlement.rice - riceRemaining) / data.entitlement.rice) * 100, 100) : 0}%`}}></div></div>
-              </div>
-              <div className="entitlement-item wheat-ent">
-                <div className="ent-icon">🌾</div>
-                <div className="ent-info">
-                  <span className="ent-label">Wheat</span>
-                  <span className="ent-value">{data.entitlement.wheat} kg</span>
-                  <span className="ent-remaining">Remaining: {wheatRemaining} kg</span>
-                </div>
-                <div className="ent-progress-wrap"><div className="ent-progress wheat-progress" style={{width: `${data.entitlement.wheat > 0 ? Math.min(((data.entitlement.wheat - wheatRemaining) / data.entitlement.wheat) * 100, 100) : 0}%`}}></div></div>
-              </div>
-            </div>
-            <div className="entitlement-chart">
-              <ResponsiveContainer width="100%" height={160}>
-                <BarChart layout="vertical" data={chartData} margin={{ left: 20, right: 20 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                  <XAxis type="number" fontSize={12} tick={{fill: '#666'}} />
-                  <YAxis type="category" dataKey="name" width={50} fontSize={12} tick={{fill: '#666'}} />
-                  <Tooltip contentStyle={{borderRadius: '10px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)'}} formatter={(val) => `${val} kg`} />
-                  <Bar dataKey="amount" radius={[0, 8, 8, 0]} barSize={24}>
-                    {chartData.map((entry, i) => <Cell key={i} fill={entry.fill} />)}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
+          ))}
         </div>
+        <div className="sidebar-logout">
+          <button onClick={onLogout}>
+            <span>⏻</span>
+            {!sidebarCollapsed && ' Logout'}
+          </button>
+        </div>
+      </div>
 
-        {/* Transaction History */}
-        <div className="card animate-in" style={{animationDelay: '240ms'}}>
-          <div className="card-header">
-            <h3>📋 Transaction History</h3>
-            <span className="inline-stat">Total: <strong>{data.transactionHistory.length}</strong></span>
-          </div>
-          <table className="data-table">
-            <thead><tr><th>Date</th><th>Shop</th><th>Rice (kg)</th><th>Wheat (kg)</th><th>Total (kg)</th></tr></thead>
-            <tbody>
-              {data.transactionHistory.map((tx, i) => (
-                <tr key={i} className="table-row-animate" style={{animationDelay: `${i * 40}ms`}}>
-                  <td>{new Date(tx.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</td>
-                  <td>{tx.shopName || `Shop #${tx.shop_id}`}</td>
-                  <td>{tx.rice} kg</td>
-                  <td>{tx.wheat} kg</td>
-                  <td><strong>{tx.rice + tx.wheat} kg</strong></td>
-                </tr>
-              ))}
-              {data.transactionHistory.length === 0 && <tr><td colSpan="5" className="empty-state">No transactions yet</td></tr>}
-            </tbody>
-          </table>
+      {/* ---- MAIN CONTENT ---- */}
+      <div className={`main-content ${sidebarCollapsed ? 'expanded' : ''}`}>
+        <div className="dashboard-content">
+          
+          {/* === OVERVIEW TAB === */}
+          {activeTab === 'overview' && (
+            <div className="sub-page">
+              <div className="welcome-section animate-in">
+                <h2>Hello, {data.user.name} 👋</h2>
+                <p>Welcome to your Smart Ration Portal</p>
+              </div>
+
+              <div className="content-grid">
+                <div className="card animate-in" style={{animationDelay: '80ms'}}>
+                  <h3>🌾 Ration Entitlement (Monthly)</h3>
+                  <div className="stat-cards" style={{gridTemplateColumns: '1fr 1fr', gap: '15px'}}>
+                    <div className="stat-card green">
+                      <div className="stat-header"><div className="stat-icon">🌾</div> Rice Status</div>
+                      <div className="stat-number">{riceRemaining} <span className="stat-unit">kg left</span></div>
+                      <div className="stat-sub">From {data.entitlement.rice} kg quota</div>
+                      <div style={{background: 'rgba(255,255,255,0.2)', height: '6px', borderRadius: '3px', marginTop: '10px'}}>
+                        <div style={{background: '#fff', height: '100%', borderRadius: '3px', width: `${data.entitlement.rice > 0 ? Math.min(((data.entitlement.rice - riceRemaining) / data.entitlement.rice) * 100, 100) : 0}%`}}></div>
+                      </div>
+                    </div>
+                    <div className="stat-card orange">
+                      <div className="stat-header"><div className="stat-icon">🌾</div> Wheat Status</div>
+                      <div className="stat-number">{wheatRemaining} <span className="stat-unit">kg left</span></div>
+                      <div className="stat-sub">From {data.entitlement.wheat} kg quota</div>
+                      <div style={{background: 'rgba(255,255,255,0.2)', height: '6px', borderRadius: '3px', marginTop: '10px'}}>
+                        <div style={{background: '#fff', height: '100%', borderRadius: '3px', width: `${data.entitlement.wheat > 0 ? Math.min(((data.entitlement.wheat - wheatRemaining) / data.entitlement.wheat) * 100, 100) : 0}%`}}></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="card animate-in" style={{animationDelay: '120ms'}}>
+                  <h3>👤 Personal Profile</h3>
+                  <div style={{display: 'flex', flexDirection: 'column', gap: '15px', marginTop: '10px'}}>
+                     <div style={{display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #e2e8f0', paddingBottom: '8px'}}>
+                       <span style={{color:'#64748b'}}>Aadhaar</span>
+                       <span style={{fontWeight:'600'}}><code className="aadhaar-code">{data.user.aadhaar}</code></span>
+                     </div>
+                     <div style={{display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #e2e8f0', paddingBottom: '8px'}}>
+                       <span style={{color:'#64748b'}}>Ration Card</span>
+                       <span style={{fontWeight:'600'}}>{data.user.ration_card_number}</span>
+                     </div>
+                     <div style={{display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #e2e8f0', paddingBottom: '8px'}}>
+                       <span style={{color:'#64748b'}}>Category</span>
+                       <span style={{fontWeight:'600'}}><span className={`category-badge ${data.user.category?.toLowerCase()}`}>{data.user.category}</span></span>
+                     </div>
+                     <div style={{display: 'flex', justifyContent: 'space-between'}}>
+                       <span style={{color:'#64748b'}}>Family Size</span>
+                       <span style={{fontWeight:'600'}}>{data.user.family_members} Members</span>
+                     </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* === TRANSACTIONS TAB === */}
+          {activeTab === 'transactions' && (
+            <div className="sub-page">
+              <div className="page-top">
+                <div>
+                  <h2>📋 Transaction History</h2>
+                  <p className="page-desc">Your past ration collections from assigned shops</p>
+                </div>
+                <div className="page-stats-inline">
+                  <span className="inline-stat">Total Pickups: <strong>{data.transactionHistory.length}</strong></span>
+                </div>
+              </div>
+
+              <div className="card animate-in">
+                <table className="data-table">
+                  <thead><tr><th>Date</th><th>Shop Name</th><th>Rice (kg)</th><th>Wheat (kg)</th><th>Total (kg)</th></tr></thead>
+                  <tbody>
+                    {data.transactionHistory.map((tx, i) => (
+                      <tr key={i} className="table-row-animate" style={{animationDelay: `${i * 40}ms`}}>
+                        <td>{new Date(tx.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</td>
+                        <td className="name-cell">{tx.shopName || `Shop #${tx.shop_id}`}</td>
+                        <td>{tx.rice} kg</td>
+                        <td>{tx.wheat} kg</td>
+                        <td><strong>{tx.rice + tx.wheat} kg</strong></td>
+                      </tr>
+                    ))}
+                    {data.transactionHistory.length === 0 && <tr><td colSpan="5" className="empty-state">No transactions recorded yet</td></tr>}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* === COMPLAINTS TAB === */}
+          {activeTab === 'complaints' && (
+            <div className="sub-page">
+              <div className="page-top">
+                <div>
+                   <h2>📝 Support & Complaints</h2>
+                   <p className="page-desc">Facing an issue? Contact the administration directly.</p>
+                </div>
+              </div>
+              <div className="content-grid">
+                <div className="card animate-in">
+                  <h3>Submit a Complaint</h3>
+                  <input className="input-field" placeholder="Title/Subject" value={compForm.title} onChange={e => setCompForm({...compForm, title: e.target.value})} style={{marginTop: '10px'}} />
+                  <textarea className="input-field" placeholder="Describe your issue in detail..." value={compForm.description} onChange={e => setCompForm({...compForm, description: e.target.value})} rows="4" style={{marginTop: '10px', resize: 'vertical'}} />
+                  <button className="action-btn" style={{marginTop: '15px'}} onClick={handleComplaintSubmit}>Submit Complaint</button>
+                </div>
+                <div className="card animate-in" style={{animationDelay: '100ms'}}>
+                  <h3>My History</h3>
+                  <div style={{marginTop: '15px'}}>
+                    {myComplaints.map(c => (
+                      <div key={c.id} style={{padding: '12px', borderBottom: '1px solid #e2e8f0', marginBottom: '8px'}}>
+                        <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: '5px'}}>
+                          <strong>{c.title}</strong>
+                          <span className={`status-badge ${c.status === 'Pending' ? 'pending' : 'delivered'}`}>{c.status}</span>
+                        </div>
+                        <p style={{fontSize: '13px', color: '#64748b'}}>{c.description}</p>
+                      </div>
+                    ))}
+                    {myComplaints.length === 0 && <p className="empty-state" style={{marginTop: '20px'}}>No complaints submitted yet.</p>}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
         </div>
       </div>
     </div>

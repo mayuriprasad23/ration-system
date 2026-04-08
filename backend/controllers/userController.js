@@ -92,11 +92,11 @@ exports.loginUser = (req, res) => {
       return res.status(401).json({ message: "Invalid password" });
     }
 
-    const token = jwt.sign({ id: user.id, role: user.role, name: user.name, aadhaar: user.aadhaar, ration_category: user.ration_category }, "secret123", {
+    const token = jwt.sign({ id: user.id, role: user.role, name: user.name, aadhaar: user.aadhaar, ration_category: user.ration_category, shop_id: user.shop_id }, "secret123", {
       expiresIn: "1h"
     });
 
-    res.json({ message: "Login successful", token, user: { id: user.id, name: user.name, role: user.role, aadhaar: user.aadhaar } });
+    res.json({ message: "Login successful", token, user: { id: user.id, name: user.name, role: user.role, aadhaar: user.aadhaar, shop_id: user.shop_id } });
   });
 };
 
